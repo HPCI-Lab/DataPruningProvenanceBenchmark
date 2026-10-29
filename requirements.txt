@@ -1,0 +1,14 @@
+torch>=2.0
+torchvision>=0.15
+numpy>=1.23
+scikit-learn>=1.2
+matplotlib>=3.6
+pyyaml>=6.0
+wandb>=0.15
+tensorboard>=2.13
+timm==0.6.13
+tqdm
+pandas>=1.5
+git+https://github.com/ChristophReich1996/Swin-Transformer-V2
+yprov4ml
+yprov4dv

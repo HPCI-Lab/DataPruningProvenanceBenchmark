@@ -1,0 +1,67 @@
+seed: 42
+dataset: CIFAR10
+ood_dataset: SVHN
+model: SimpleCNN          # SimpleCNN | ResNet18 | ViTSmall | ViTMedium | ViTLarge
+in_channels: 3
+num_classes: 10
+
+ratios: [ 0.40, 0.60]  #0.10, 0.20 ,
+methods: [ "d2"] #, "knn_shapley", "coreset", "hybrid", "random","lsh", "el2n", "ccs",
+
+train:
+  epochs: 10
+  batch_size: 128
+  lr: 0.01            # 0.1 diverges for SimpleCNN (no BatchNorm); use 0.1 only for ResNet18
+  grad_clip: 5.0
+  optimizer: sgd
+  logger_backend: null     # null | wandb | tensorboard
+
+eval:
+  ece_bins: 15
+  noise_epsilons: [0.05, 0.1, 0.2]
+
+output:
+  results_json: results/results.json
+  results_csv: r_SimpleCNN.csv
+  plot_path: results/summary_plot.png
+
+# ---- Robustness study 1: label noise -------------------------------------------------------
+# A fixed fraction of TRAIN labels is corrupted. Pruners only look at features (never labels), so
+# selection is computed once per (method, ratio) and reused for every noise setting; we then
+# record how much of the corrupted set each selector picked (noise_enrichment) and train on it.
+#   symmetric : uniform flips (null case: label-agnostic selectors should have enrichment ~ 1)
+#   pair      : class-conditional flips (cat<->dog, ...)
+#   instance  : atypical samples (far from class centroid) are more likely mislabeled
+label_noise:
+  enabled: true
+  rates: [0.0, 0.2, 0.4]           # 0.0 is the clean baseline (also used for the shift study)
+  types: [symmetric, instance]     # any of: symmetric | pair | instance
+  instance_beta: 2.0               # strength of feature-dependence for 'instance' noise
+  feature_dim: 64                  # PCA dim of the geometry used for instance noise / diagnostics
+
+# ---- Robustness study 2: distribution shift ---------------------------------------------------
+# Models are trained on clean source data and evaluated on shifted copies of the TEST set.
+shift:
+  enabled: true
+  source: synthetic                # synthetic | official (official needs ./data/CIFAR-10-C/*.npy)
+  official_root: ./data/CIFAR-10-C
+  eval_with_label_noise: false     # also run the shift eval for noisy-label models (slower)
+  severities: [1, 3, 5]            # only for CIFAR-style corruptions
+  conditions:
+    CIFAR10: [gaussian_noise] # gaussian_blur, fog, snow, contrast
+    MNIST: [patch_permute] # rotate_45, rotate_90, 
+    FashionMNIST: [patch_permute] # rotate_45, rotate_90, 
+
+# ---- Extra pruners (label-aware: each trains a small proxy model on the labels it is given) ------
+# Add any of these to `methods:` at the top of this file:
+#   el2n         Paul et al. 2021    hardest-first by EL2N                       (classic uncertainty baseline)
+#   ccs          Zheng et al. 2023   stratified sampling over AUM difficulty     (strong, robust to hard/noisy tail)
+#   d2           Maharana et al. 2024 difficulty + diversity via message passing  (best published at low/medium pruning)
+#   knn_shapley  Jia et al. 2019     exact KNN-Shapley data valuation
+# Because they read labels, they are re-run for every label-noise setting (this is what makes the
+# "before vs after noise injection" question meaningful for them).
+pruner_kwargs:
+  el2n:        {proxy_epochs: 5, proxy_runs: 2}
+  ccs:         {proxy_epochs: 5, proxy_runs: 2, strata: 50, hard_cut: auto}
+  d2:          {proxy_epochs: 5, proxy_runs: 2, n_neighbors: 5, gamma: 0.1, hard_cut: auto}
+  knn_shapley: {proxy_epochs: 5, k_neighbors: 10, n_val: 5000, class_balanced: true}
